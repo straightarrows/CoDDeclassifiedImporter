@@ -70,6 +70,8 @@ def ReadFaceIndex(fileobject):
 # shotgun shell model 1404, face 3612, 
 #flag model 6688, face 14606, 918 vertices. 306 faces?
 
+#this is a random addition
+
 def ImportModel(fileobject, modelcomplex):
     fileobject.seek(6684,0) 
     vertexlist = [] 
