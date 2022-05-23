@@ -30,7 +30,7 @@ except:
 
 def ReadInt32(fileobject):
     intstr = fileobject.read(4)
-    return struct.unpack('<i',intstr)
+    return struct.unpack('<i',intstr)[0]
 
 def ReadFloat(fileobject):
     floatstr = fileobject.read(4)
@@ -67,13 +67,8 @@ def ReadFaceIndex(fileobject):
     return faceindexlist
     
 
-# shotgun shell model 1404, face 3612, 
-#flag model 6688, face 14606, 918 vertices. 306 faces?
-
-#this is a random addition
-
-def ImportModel(fileobject, modelcomplex):
-    fileobject.seek(6684,0) 
+def ImportModel(fileobject, offsettomodel, modelcomplex):
+    fileobject.seek(offsettomodel,0) 
     vertexlist = [] 
     if modelcomplex:
         seekvalue = 32
@@ -94,14 +89,51 @@ def ImportModel(fileobject, modelcomplex):
     scene = bpy.context.scene
     scene.collection.objects.link(object)
 
+def GetModelOffset(fileobject):
+    fileobject.seek(12,0) #reading end of the file directory so we can jmp from it
+    EndOfFileDirectoryOffsetint = ReadInt32(fileobject)
+    fileobject.seek(256,0) #looking for FFFF7FFF for other offsets
+    FFBYTECONFIRM = 0
+    #FFBYTE = b'\xff\xff\x7f\xff' \xff\x7f\xff
+    i=0
+    for i in range (200):
+        
+        FFBYTE = fileobject.read(1)
+        if FFBYTE == b'\xff':
+            FFBYTECONFIRM = fileobject.read(3)
+            print(FFBYTECONFIRM)
+            break
+            
+        if i == 199: 
+            
+            print("byte not found, returning")
+            return          
+
+    VerticesAndFacesSizeint = ReadInt32(fileobject) #after FFFF7FFF we have vertices+faces region size
+    OffsetFromDirectoryToModelint =  ReadInt32(fileobject) #the offset to jmp from end of directory to model
+    TotalOffsetToModel = EndOfFileDirectoryOffsetint + OffsetFromDirectoryToModelint
+    print(VerticesAndFacesSizeint)
+    print(TotalOffsetToModel)
+    return TotalOffsetToModel       
 
 
 
-def readdatafromfile(context, filepath):
+      
+
+    
+        
+
+    
+        
+
+
+
+def ReadDataFromFile(context, filepath):
     fileobjectsmf = open(filepath, "rb")
     #print(fileobjectsmf.read(5))
     modelcomplexcurrent = True
-    ImportModel(fileobjectsmf,modelcomplexcurrent)
+    OffsetToModel = GetModelOffset(fileobjectsmf)
+    ImportModel(fileobjectsmf, OffsetToModel, modelcomplexcurrent)
     return
     
 
@@ -133,7 +165,7 @@ class ImportSMF(bpy.types.Operator, ImportHelper):
         # for f in self.files:
         #     print(f)
         # print(self.directory)
-        readdatafromfile(context, self.filepath)
+        ReadDataFromFile(context, self.filepath)
     
         #modelFilePath = self.filepath
         #fileName = modelFilePath[:-3]
