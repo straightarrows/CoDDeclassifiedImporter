@@ -57,9 +57,9 @@ def ReadVector(fileobject):
     return Vector([x,y,z])
 
 def ReadFaceIndex(fileobject):
-    fileobject.seek(14604,0) 
+    fileobject.seek(112144,0) 
     faceindexlist = []
-    for i in range(306): #this is not supposed to be same as floats
+    for i in range(500): #this is not supposed to be same as floats
         faceindextriple = ReadShortTriple(fileobject)
         #print(faceindextriple)
         faceindexlist.append(faceindextriple)
@@ -67,14 +67,16 @@ def ReadFaceIndex(fileobject):
     return faceindexlist
     
 
-def ImportModel(fileobject, offsettomodel, modelcomplex):
-    fileobject.seek(offsettomodel,0) 
+def ImportModel(fileobject, offsettomodel, ModelType):
+    fileobject.seek(offsettomodel+16,0) #the offset to model spits you out 16 bytes before first vertex
     vertexlist = [] 
-    if modelcomplex:
+    if ModelType == 2 :
         seekvalue = 32
-    else:
+    if ModelType == 1:
         seekvalue = 28
-    for i in range(180): 
+    if ModelType == 0:
+        seekvalue = 12
+    for i in range(300): 
         vertex = ReadVector(fileobject)
         vertexlist.append(vertex)
         fileobject.seek(seekvalue,1)
@@ -131,9 +133,9 @@ def GetModelOffset(fileobject):
 def ReadDataFromFile(context, filepath):
     fileobjectsmf = open(filepath, "rb")
     #print(fileobjectsmf.read(5))
-    modelcomplexcurrent = True
+    ModelTypeCurrent = 0 #this will need to be changed based off file
     OffsetToModel = GetModelOffset(fileobjectsmf)
-    ImportModel(fileobjectsmf, OffsetToModel, modelcomplexcurrent)
+    ImportModel(fileobjectsmf, OffsetToModel, ModelTypeCurrent)
     return
     
 
