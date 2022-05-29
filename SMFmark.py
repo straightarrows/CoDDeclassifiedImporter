@@ -70,9 +70,9 @@ def ReadFaceIndex(fileobject):
 def ImportModel(fileobject, offsettomodel, ModelType):
     fileobject.seek(offsettomodel+16,0) #the offset to model spits you out 16 bytes before first vertex
     vertexlist = [] 
-    if ModelType == 2 :
+    if ModelType == 2 : #if 2C (hex) repeating units
         seekvalue = 32
-    if ModelType == 1:
+    if ModelType == 1: #if 28 (hex) repeating units
         seekvalue = 28
     if ModelType == 0:
         seekvalue = 12
@@ -116,7 +116,7 @@ def GetModelOffset(fileobject, EndofFileDirectoryOffset):
 
     VerticesAndFacesSizeint = ReadInt32(fileobject) #after FFFF7FFF we have vertices+faces region size
     OffsetFromDirectoryToModelint =  ReadInt32(fileobject) #the offset to jmp from end of directory to model
-    TotalOffsetToModel = EndOfFileDirectoryOffset + OffsetFromDirectoryToModelint
+    TotalOffsetToModel = EndofFileDirectoryOffset + OffsetFromDirectoryToModelint
     #print(VerticesAndFacesSizeint)
     #print(TotalOffsetToModel)
     return TotalOffsetToModel       
@@ -127,6 +127,7 @@ def FourBytesAreNonZero(fileobject):
         if readbyte == 0:
             return False
         else:
+            print(i) 
             continue
 
     return True
@@ -135,25 +136,31 @@ def FourBytesAreNonZero(fileobject):
 
 
 
-def GetDicData(fileobject, EndOfFileDirectoryOffset):
+def GetDicLoc(fileobject, EndOfFileDirectoryOffset):
     ### Pookey chicken method. we are going seek 158 hex past the end of nsirsrc header
     ###then we are going to search for what I believe is the model tag id
     ###then you take the next 4 bytes as the offset to the real dictionary. 
     ###If those 4 bytes are 0, you take the NEXT 4 and that is usually the dictionary offset 
-    fileobject.seek(EndOfFileDirectoryOffset,0)
-    fileobject.seek(344,1)
+    fileobject.seek(EndOfFileDirectoryOffset+344,0)
+    ###would be nice to make model tag find its own func here
+
     OffsetToFirstDicbase = 0
     while OffsetToFirstDicbase == 0:
-        if FourBytesAreNonZero(fileobject):
-            OffsetToFirstDicbase = ReadInt32(fileobject)
-            if OffsetToFirstDicbase == 0:
-               OffsetToFirstDicbase = ReadInt32(fileobject)
-    print(OffsetToFirstDicbase)
+        if FourBytesAreNonZero(fileobject): #dumb way for checking for model tag
+            print("do we get here?")
+            for x in range(3): #loop thru 12 bytes after model tag to find the offset
+                OffsetToFirstDicbase = ReadInt32(fileobject)
+                if OffsetToFirstDicbase == 0:
+                    continue
+                else:
+                    break
+            
+    print(OffsetToFirstDicbase) #is this working? yes
     FirstdicOffset = OffsetToFirstDicbase + EndOfFileDirectoryOffset  
     fileobject.seek(FirstdicOffset + 24, 0) #moving to 1st dic + 18 hex
     OffsetToDDDDirectorybase = ReadInt32(fileobject) #reading 400 from the 1st dic
     DDDDirectoryOffset = OffsetToDDDDirectorybase + EndOfFileDirectoryOffset  #adding the 400 to the string end of header
-
+    print(DDDDirectoryOffset)
 
 
       
@@ -165,9 +172,10 @@ def ReadDataFromFile(context, filepath):
     ModelTypeCurrent = 2 #this will need to be changed based off file
     fileobjectsmf.seek(12,0) #reading end of the file directory so we can jmp from it
     EndOfNsiFileDirectoryOffsetint = ReadInt32(fileobjectsmf)
-    #GetDicData(fileobjectssmf, EnfOfNsiFileDirectoryOffsetint)
-    OffsetToModel = GetModelOffset(fileobjectsmf, EndOfNsiFileDirectoryOffsetint )
-    ImportModel(fileobjectsmf, OffsetToModel, ModelTypeCurrent)
+    print(EndOfNsiFileDirectoryOffsetint)
+    GetDicLoc(fileobjectsmf, EndOfNsiFileDirectoryOffsetint) #this is working in most cases we throw at it
+    #OffsetToModel = GetModelOffset(fileobjectsmf, EndOfNsiFileDirectoryOffsetint )
+    #ImportModel(fileobjectsmf, OffsetToModel, ModelTypeCurrent)
     return
     
 
