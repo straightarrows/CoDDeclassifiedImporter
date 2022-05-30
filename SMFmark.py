@@ -56,10 +56,10 @@ def ReadVector(fileobject):
     #print(z)
     return Vector([x,y,z])
 
-def ReadFaceIndex(fileobject):
-    fileobject.seek(210388,0) 
+def ReadFaceIndex(fileobject, NumFaces):
+    fileobject.seek(9,1) #as long as we just finished vertices this should seek to start of faces just fine
     faceindexlist = []
-    for i in range(4100): #this is not supposed to be same as floats
+    for i in range(NumFaces): #this is not supposed to be same as floats
         faceindextriple = ReadShortTriple(fileobject)
         #print(faceindextriple)
         faceindexlist.append(faceindextriple)
@@ -67,21 +67,28 @@ def ReadFaceIndex(fileobject):
     return faceindexlist
     
 
-def ImportModel(fileobject, offsettomodel, ModelType):
-    fileobject.seek(offsettomodel+16,0) #the offset to model spits you out 16 bytes before first vertex
-    vertexlist = [] 
+def ReadVertices(fileobject,offsettomodel,ModelType, NumVertices):
     if ModelType == 2 : #if 2C (hex) repeating units
         seekvalue = 32
     if ModelType == 1: #if 28 (hex) repeating units
         seekvalue = 28
     if ModelType == 0:
         seekvalue = 12
-    for i in range(4650): 
+    fileobject.seek(offsettomodel+16,0) #the offset to model spits you out 16 bytes before first vertex
+    vertexlist = []
+    for i in range(NumVertices): 
         vertex = ReadVector(fileobject)
         vertexlist.append(vertex)
-        fileobject.seek(seekvalue,1)
+        fileobject.seek(seekvalue,1) 
+
+    return vertexlist
+
+def ImportModel(fileobject, offsettomodel, ModelType, NumVertices, NumFaces):
+    
+    
+    vertexlist = ReadVertices(fileobject,offsettomodel,ModelType, NumVertices)
     #print(vertexlist)
-    faceindexlist = ReadFaceIndex(fileobject)
+    faceindexlist = ReadFaceIndex(fileobject, NumFaces)
     #print(faceindexlist)
     
     mesh = bpy.data.meshes.new("Cod_Vita_Mesh")
@@ -91,7 +98,7 @@ def ImportModel(fileobject, offsettomodel, ModelType):
     scene = bpy.context.scene
     scene.collection.objects.link(object)
 
-def GetModelOffset(fileobject, EndofFileDirectoryOffset):
+def GetModelOffset(fileobject, OffsetFromModelFileStartString, EndofFileDirectoryOffset):
     ###If you want to be slightly more official, you could go to the 
     ###second nsirsrc string section (do this by going to offsets at end of first string section)
     ###find 31 byte and seek 8 bytes to the overall offset of FFFF7FFF
@@ -115,8 +122,8 @@ def GetModelOffset(fileobject, EndofFileDirectoryOffset):
             return          
 
     VerticesAndFacesSizeint = ReadInt32(fileobject) #after FFFF7FFF we have vertices+faces region size
-    OffsetFromDirectoryToModelint =  ReadInt32(fileobject) #the offset to jmp from end of directory to model
-    TotalOffsetToModel = EndofFileDirectoryOffset + OffsetFromDirectoryToModelint
+    OffsetFromNSIHeaderToModelint =  ReadInt32(fileobject) #the offset to jmp from end of NSI Header directory to model
+    TotalOffsetToModel = EndofFileDirectoryOffset + OffsetFromNSIHeaderToModelint + OffsetFromModelFileStartString
     #print(VerticesAndFacesSizeint)
     #print(TotalOffsetToModel)
     return TotalOffsetToModel       
@@ -161,7 +168,15 @@ def GetDicLoc(fileobject, EndOfFileDirectoryOffset):
     OffsetToDDDDirectorybase = ReadInt32(fileobject) #reading 400 from the 1st dic
     DDDDirectoryOffset = OffsetToDDDDirectorybase + EndOfFileDirectoryOffset  #adding the 400 to the string end of header
     print(DDDDirectoryOffset)
+    return DDDDirectoryOffset
 
+def GetSubmeshData(DDDDirectoryOffset, fileobject):
+    fileobject.seek(DDDDirectoryOffset+8,0)
+    NumVertices = ReadInt32(fileobject) 
+    OffsetFromModelFileStartString = ReadInt32(fileobject)
+    NumFaces = ReadInt32(fileobject)
+    ##TO-DO: Loop this through however many submeshes there are in file##
+    return NumVertices, OffsetFromModelFileStartString, NumFaces
 
       
 
@@ -169,13 +184,14 @@ def GetDicLoc(fileobject, EndOfFileDirectoryOffset):
 def ReadDataFromFile(context, filepath):
     fileobjectsmf = open(filepath, "rb")
     #print(fileobjectsmf.read(5))
-    ModelTypeCurrent = 2 #this will need to be changed based off file
+    ModelTypeCurrent = 1 #this will need to be changed based off file
     fileobjectsmf.seek(12,0) #reading end of the file directory so we can jmp from it
     EndOfNsiFileDirectoryOffsetint = ReadInt32(fileobjectsmf)
     print(EndOfNsiFileDirectoryOffsetint)
-    GetDicLoc(fileobjectsmf, EndOfNsiFileDirectoryOffsetint) #this is working in most cases we throw at it
-    #OffsetToModel = GetModelOffset(fileobjectsmf, EndOfNsiFileDirectoryOffsetint )
-    #ImportModel(fileobjectsmf, OffsetToModel, ModelTypeCurrent)
+    DDDDirectoryOffset = GetDicLoc(fileobjectsmf, EndOfNsiFileDirectoryOffsetint) #this is working in most cases we throw at it
+    NumVertices, OffsetFromModelFileStartString, NumFaces = GetSubmeshData(DDDDirectoryOffset, fileobjectsmf)
+    OffsetToModel = GetModelOffset(fileobjectsmf,  OffsetFromModelFileStartString, EndOfNsiFileDirectoryOffsetint ) #adding offset from model file start string should allow us to do submeshes
+    ImportModel(fileobjectsmf, OffsetToModel, ModelTypeCurrent, NumVertices, NumFaces)
     return
     
 
