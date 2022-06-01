@@ -57,6 +57,7 @@ def ReadVector(fileobject):
     return Vector([x,y,z])
 
 def ReadFaceIndex(fileobject, NumFaces):
+    # NEED TO FIX for this seek below!!!!sometime it is C/12 length! sometimes there is no 8 byte DDDD and the faces start immediately!
     fileobject.seek(8,1) #as long as we just finished vertices this should seek to start of faces just fine
     faceindexlist = []
     for i in range(NumFaces): #this is not supposed to be same as floats
@@ -68,6 +69,8 @@ def ReadFaceIndex(fileobject, NumFaces):
     
 
 def ReadVertices(fileobject,offsettomodel,ModelType, NumVertices):
+    if ModelType == 3:
+        seekvalue = 0
     if ModelType == 2 : #if 2C (hex) repeating units
         seekvalue = 32
     if ModelType == 1: #if 28 (hex) repeating units
@@ -91,12 +94,12 @@ def ImportModel(fileobject, offsettomodel, ModelType, NumVertices, NumFaces):
     faceindexlist = ReadFaceIndex(fileobject, NumFaces)
     print(faceindexlist)
     
-    #mesh = bpy.data.meshes.new("Cod_Vita_Mesh")
-    #mesh.from_pydata(vertexlist,[],faceindexlist)
-    #mesh.validate(verbose=True)
-    #object = bpy.data.objects.new("Cod_Vita_Mesh", mesh)
-    #scene = bpy.context.scene
-    #scene.collection.objects.link(object)
+    mesh = bpy.data.meshes.new("Cod_Vita_Mesh")
+    mesh.from_pydata(vertexlist,[],faceindexlist)
+    mesh.validate(verbose=True)
+    object = bpy.data.objects.new("Cod_Vita_Mesh", mesh)
+    scene = bpy.context.scene
+    scene.collection.objects.link(object)
 
 def GetModelOffset(fileobject, OffsetFromModelFileStartString, EndofFileDirectoryOffset):
     ###If you want to be slightly more official, you could go to the 
@@ -163,12 +166,29 @@ def GetDicLoc(fileobject, EndOfFileDirectoryOffset):
                     break
             
     print(OffsetToFirstDicbase) #is this working? yes
-    FirstdicOffset = OffsetToFirstDicbase + EndOfFileDirectoryOffset  
-    fileobject.seek(FirstdicOffset + 24, 0) #moving to 1st dic + 18 hex
-    OffsetToDDDDirectorybase = ReadInt32(fileobject) #reading 400 from the 1st dic
-    DDDDirectoryOffset = OffsetToDDDDirectorybase + EndOfFileDirectoryOffset  #adding the 400 to the string end of header
-    print(DDDDirectoryOffset)
-    return DDDDirectoryOffset
+    #return an array of all the DDD offsets with loop?
+    FirstDicOffset = OffsetToFirstDicbase + EndOfFileDirectoryOffset  
+    MeshCount = 1
+    DicOffsetMeshNumber = 0
+    DDDDirectoriesList = []
+    while MeshCount == 1:
+        CurrentDicOffset = FirstDicOffset+DicOffsetMeshNumber(32)
+        fileobject.seek(CurrentDicOffset, 0)
+        MeshCount = ReadInt32(fileobject)
+        if MeshCount == 1:
+            fileobject.seek(CurrentDicOffset + 24, 0) #offset to DDD Direc
+            OffsetToDDDDirectorybase = ReadInt32(fileobject)
+            DDDDirectoryOffset = OffsetToDDDDirectorybase + EndOfFileDirectoryOffset
+            DDDDirectoriesList.append(DDDDirectoryOffset)
+            DicOffsetMeshNumber = DicOffsetMeshNumber + 1
+
+    #FirstdicOffset = OffsetToFirstDicbase + EndOfFileDirectoryOffset  
+    #fileobject.seek(FirstdicOffset + 24, 0) #moving to 1st dic + 18 hex
+    #OffsetToDDDDirectorybase = ReadInt32(fileobject) #reading 400 from the 1st dic
+    #DDDDirectoryOffset = OffsetToDDDDirectorybase + EndOfFileDirectoryOffset  #adding the 400 to the string end of header
+    #print(DDDDirectoryOffset)
+    return  DDDDirectoriesList #also return the dicoffsetmeshnumber? for later for loop
+
 
 def GetSubmeshData(DDDDirectoryOffset, fileobject):
     fileobject.seek(DDDDirectoryOffset+8,0)
@@ -184,15 +204,18 @@ def GetSubmeshData(DDDDirectoryOffset, fileobject):
 def ReadDataFromFile(context, filepath):
     fileobjectsmf = open(filepath, "rb")
     #print(fileobjectsmf.read(5))
-    ModelTypeCurrent = 1 #this will need to be changed based off file
+    ModelTypeCurrent = 0 #this will need to be changed based off file
     fileobjectsmf.seek(12,0) #reading end of the file directory so we can jmp from it
     EndOfNsiFileDirectoryOffsetint = ReadInt32(fileobjectsmf)
     print(EndOfNsiFileDirectoryOffsetint)
-    DDDDirectoryOffset = GetDicLoc(fileobjectsmf, EndOfNsiFileDirectoryOffsetint) #this is working in most cases we throw at it
-    NumVertices, OffsetFromModelFileStartString, NumFaces = GetSubmeshData(DDDDirectoryOffset, fileobjectsmf)
-    OffsetToModel = GetModelOffset(fileobjectsmf,  OffsetFromModelFileStartString, EndOfNsiFileDirectoryOffsetint ) #adding offset from model file start string should allow us to do submeshes
-    print(NumVertices, NumFaces)
-    ImportModel(fileobjectsmf, OffsetToModel, ModelTypeCurrent, NumVertices, NumFaces)
+    DDDDirectoryList = GetDicLoc(fileobjectsmf, EndOfNsiFileDirectoryOffsetint) #this is working in most cases we throw at it
+    ###start the sub mesh loop here?
+    print (DDDDirectoryList)
+    #NumVertices, OffsetFromModelFileStartString, NumFaces = GetSubmeshData(DDDDirectoryOffset, fileobjectsmf)
+    #OffsetToModel = GetModelOffset(fileobjectsmf,  OffsetFromModelFileStartString, EndOfNsiFileDirectoryOffsetint ) #adding offset from model file start string should allow us to do submeshes
+    #print(NumVertices, NumFaces)
+    #ImportModel(fileobjectsmf, OffsetToModel, ModelTypeCurrent, NumVertices, NumFaces)
+    ###end submesh loop here?
     return
     
 
