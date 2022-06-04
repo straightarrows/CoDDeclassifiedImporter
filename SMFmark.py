@@ -57,12 +57,12 @@ def ReadVector(fileobject):
     #print(z)
     return Vector([x,y,z])
 
-def ReadFaceIndex(fileobject, NumFaces, DDDseekvalue):
+def ReadFaceIndex(fileobject, FacesOverallOffset, NumFaces):
     # NEED TO FIX for this seek below!!!!sometime it is C/12 length! sometimes there is no 8 byte DDDD and the faces start immediately!
     
 
     
-    fileobject.seek(DDDseekvalue,1) #as long as we just finished vertices this should seek to start of faces just fine
+    fileobject.seek(FacesOverallOffset,0) #as long as we just finished vertices this should seek to start of faces just fine
     faceindexlist = []
     for i in range(NumFaces): #this is not supposed to be same as floats
         faceindextriple = ReadShortTriple(fileobject)
@@ -72,16 +72,16 @@ def ReadFaceIndex(fileobject, NumFaces, DDDseekvalue):
     return faceindexlist
     
 
-def ReadVertices(fileobject,offsettomodel,ModelType, NumVertices):
-    if ModelType == 3:
+def ReadVertices(fileobject,FirstVertexOverallOffset,RepeatingVertexUnit, NumVertices):
+    if RepeatingVertexUnit == 12:
         seekvalue = 0
-    if ModelType == 2 : #if 2C (hex) repeating units
+    if RepeatingVertexUnit == 44 : #if 2C (hex) repeating units
         seekvalue = 32
-    if ModelType == 1: #if 28 (hex) repeating units
+    if RepeatingVertexUnit == 40: #if 28 (hex) repeating units
         seekvalue = 28
-    if ModelType == 0:
+    if RepeatingVertexUnit == 24:
         seekvalue = 12
-    fileobject.seek(offsettomodel+16,0) #the offset to model spits you out 16 bytes before first vertex
+    fileobject.seek(FirstVertexOverallOffset,0) #the offset to model spits you out 16 bytes before first vertex
     vertexlist = []
     for i in range(NumVertices): 
         vertex = ReadVector(fileobject)
@@ -90,23 +90,26 @@ def ReadVertices(fileobject,offsettomodel,ModelType, NumVertices):
 
     return vertexlist
 
-def ImportModel(fileobject, offsettomodel, ModelType, NumVertices, NumFaces, MeshNumber):
+def ImportModel(fileobject, offsettomodel, OffsetToFaces,FirstVertexOffset, RepeatingVertexUnit, NumVertices, NumFaces, MeshNumber):
     
+    CurrentVertexOverallOffset = offsettomodel+16
     
-    vertexlist = ReadVertices(fileobject,offsettomodel,ModelType, NumVertices)
+    vertexlist = ReadVertices(fileobject,CurrentVertexOverallOffset,RepeatingVertexUnit, NumVertices)
     print(vertexlist)
-    if MeshNumber ==0:
-       DDDseekvalue = 12
-    if MeshNumber == 1:
-         DDDseekvalue = 8
-    if MeshNumber == 2:
-         DDDseekvalue = 8
-    else:
-        DDDseekvalue = 0
+    #if MeshNumber ==0:
+    #   DDDseekvalue = 12
+    #if MeshNumber == 1:
+    #     DDDseekvalue = 8
+    #if MeshNumber == 2:
+    #     DDDseekvalue = 8
+    #else:
+    #    DDDseekvalue = 0
     
-    faceindexlist = ReadFaceIndex(fileobject, NumFaces,DDDseekvalue)
+    FacesOverallOffset = FirstVertexOffset + OffsetToFaces
+    print(FacesOverallOffset)
+    faceindexlist = ReadFaceIndex(fileobject, FacesOverallOffset,NumFaces)
     print(faceindexlist)
-    #meshstring = "Cod_Vita_Mesh" + str(MeshNumber)
+    meshstring = "Cod_Vita_Mesh" + str(MeshNumber)
     mesh = bpy.data.meshes.new("Cod_Vita_Mesh")
     mesh.from_pydata(vertexlist,[],faceindexlist)
     mesh.validate(verbose=True)
@@ -129,7 +132,7 @@ def GetModelOffset(fileobject, OffsetFromModelFileStartString, EndofFileDirector
         FFBYTE = fileobject.read(1)
         if FFBYTE == b'\xff':
             FFBYTECONFIRM = fileobject.read(3)
-            print(FFBYTECONFIRM)
+            #print(FFBYTECONFIRM)
             break
             
         if i == 49: 
@@ -141,7 +144,7 @@ def GetModelOffset(fileobject, OffsetFromModelFileStartString, EndofFileDirector
     OffsetFromNSIHeaderToModelint =  ReadInt32(fileobject) #the offset to jmp from end of NSI Header directory to model
     TotalOffsetToModel = EndofFileDirectoryOffset + OffsetFromNSIHeaderToModelint + OffsetFromModelFileStartString
     #print(VerticesAndFacesSizeint)
-    print(TotalOffsetToModel)
+    #print(TotalOffsetToModel)
     return TotalOffsetToModel       
 
 def FourBytesAreNonZero(fileobject):
@@ -150,7 +153,7 @@ def FourBytesAreNonZero(fileobject):
         if readbyte == 0:
             return False
         else:
-            print(i) 
+            #print(i) 
             continue
 
     return True
@@ -182,11 +185,11 @@ def GetDicLoc(fileobject, EndOfFileDirectoryOffset):
     #return an array of all the DDD offsets with loop?
     FirstDicOffset = OffsetToFirstDicbase + EndOfFileDirectoryOffset  
     MeshCount = 1
-    DicOffsetMeshNumber = 0
-    DDDDirectoriesList = []
+    DicOffsetMeshNumber = 0 #simple count for the number of submeshes
+    DDDDirectoriesList = [] #a list of the overall offsets to DDDD directory
     while MeshCount == 1:
         CurrentDicOffset = FirstDicOffset+DicOffsetMeshNumber*32
-        print(CurrentDicOffset)
+        #print(CurrentDicOffset)
         fileobject.seek(CurrentDicOffset, 0)
         MeshCount = ReadInt32(fileobject)
         if MeshCount == 1:
@@ -211,8 +214,14 @@ def GetSubmeshData(DDDDirectoryOffset, fileobject):
     NumVertices = ReadInt32(fileobject) 
     OffsetFromModelFileStartString = ReadInt32(fileobject)
     NumFaces = ReadInt32(fileobject)
+    fileobject.seek(4, 1) #skip the next data point and grab the vertex+ddd size
+    FacesOffset = ReadInt32(fileobject) #faces offset from first vertex under smf string
+    VertexAndDDDSize = FacesOffset - OffsetFromModelFileStartString #this subtracts the rest of the data so you only have the current submesh vertice+DDD region size
+    print ("the size of the vertex and DDD region for this model is",VertexAndDDDSize)
+    RepeatingVertexUnit = round(VertexAndDDDSize/NumVertices)
+    print ("the size of the repeating vertex unit for this model is",RepeatingVertexUnit)
     ##TO-DO: Loop this through however many submeshes there are in file##
-    return NumVertices, OffsetFromModelFileStartString, NumFaces
+    return NumVertices, OffsetFromModelFileStartString, NumFaces, FacesOffset, RepeatingVertexUnit
 
       
 
@@ -228,14 +237,14 @@ def ReadDataFromFile(context, filepath):
     ###start the sub mesh loop here?
     for MeshNumber in range (DicOffsetMeshNumber):
         #print("in for loop", DDDDirectoriesList[i])
-        NumVertices, OffsetFromModelFileStartString, NumFaces = GetSubmeshData(DDDDirectoriesList[MeshNumber], fileobjectsmf)
+        NumVertices, OffsetFromModelFileStartString, NumFaces, OffsetToFaces, RepeatingVertexUnit = GetSubmeshData(DDDDirectoriesList[MeshNumber], fileobjectsmf)
         ### we can take below out of for loop as we just add one thing to it later
         OffsetToModel = GetModelOffset(fileobjectsmf,  OffsetFromModelFileStartString, EndOfNsiFileDirectoryOffsetint ) #adding offset from model file start string should allow us to do submeshes
         ###
-        if MeshNumber > 1:
-            ModelTypeCurrent = 1
+        if MeshNumber == 0: #want to get offset for the first model
+            FirstVertexOffset = OffsetToModel+16
         print(NumVertices, NumFaces)
-        ImportModel(fileobjectsmf, OffsetToModel, ModelTypeCurrent, NumVertices, NumFaces, MeshNumber)
+        ImportModel(fileobjectsmf, OffsetToModel, OffsetToFaces, FirstVertexOffset, RepeatingVertexUnit, NumVertices, NumFaces, MeshNumber)
         #superdumb method to get vertices right for now
         #ModelTypeCurrent = ModelTypeCurrent +2
     ###end submesh loop here?
