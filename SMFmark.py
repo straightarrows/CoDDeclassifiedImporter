@@ -96,14 +96,6 @@ def ImportModel(fileobject, offsettomodel, OffsetToFaces,FirstVertexOffset, Repe
     
     vertexlist = ReadVertices(fileobject,CurrentVertexOverallOffset,RepeatingVertexUnit, NumVertices)
     print(vertexlist)
-    #if MeshNumber ==0:
-    #   DDDseekvalue = 12
-    #if MeshNumber == 1:
-    #     DDDseekvalue = 8
-    #if MeshNumber == 2:
-    #     DDDseekvalue = 8
-    #else:
-    #    DDDseekvalue = 0
     
     FacesOverallOffset = FirstVertexOffset + OffsetToFaces
     print(FacesOverallOffset)
@@ -162,28 +154,50 @@ def FourBytesAreNonZero(fileobject):
 
 
 
-def GetDicLoc(fileobject, EndOfFileDirectoryOffset):
+def GetDicLoc(fileobject, EndOfNSIFileDirectoryOffset):
     ### Pookey chicken method. we are going seek 158 hex past the end of nsirsrc header
     ###then we are going to search for what I believe is the model tag id
     ###then you take the next 4 bytes as the offset to the real dictionary. 
     ###If those 4 bytes are 0, you take the NEXT 4 and that is usually the dictionary offset 
-    fileobject.seek(EndOfFileDirectoryOffset+344,0)
-    ###would be nice to make model tag find its own func here
+    OffsetFromEndOfNSIToDDDDescriptor = 320 #it is always 140 hex/320 dec to the first DDD descriptor, then you have the number of DDD regions and the offset to the first model tag/model descriptor region
+    OffsetFromModelTagJmpToActualModelTag = 8
+    fileobject.seek(EndOfNSIFileDirectoryOffset+OffsetFromEndOfNSIToDDDDescriptor,0) 
+    
+    ZeroChecker = 0
+    ModelTagCount = []
+    OffsetToModelTag = []
+    Counter = 0
+    while ZeroChecker == 0:
+        ModelTagCount.append(ReadInt32(fileobject)) # note that this will store a zero 
+        if ModelTagCount[Counter] == 0:
+            ZeroChecker = 1
+            ModelTagCount.pop()
+            break
+        OffsetToModelTag.append(ReadInt32(fileobject))
+        fileobject.seek(8,1)
+        Counter = Counter +1
+    fileobject.seek(OffsetToModelTag[0]+EndOfNSIFileDirectoryOffset+OffsetFromModelTagJmpToActualModelTag,0) #this shoule land us directly on first model tag
+    ModelTag = ReadInt32(fileobject)
+    fileobject.seek(4,1)
+    OffsetToFirstDicbase = ReadInt32(fileobject) #we can expand on thi laters to get all the model tags and their dic offsets, right now we only need first
+    if OffsetToFirstDicbase == 0:
+        OffsetToFirstDicbase = ReadInt32(fileobject)
 
-    OffsetToFirstDicbase = 0
-    while OffsetToFirstDicbase == 0:
-        if FourBytesAreNonZero(fileobject): #dumb way for checking for model tag
-            print("do we get here?")
-            for x in range(3): #loop thru 12 bytes after model tag to find the offset
-                OffsetToFirstDicbase = ReadInt32(fileobject)
-                if OffsetToFirstDicbase == 0:
-                    continue
-                else:
-                    break
+
+    #OffsetToFirstDicbase = 0
+    #while OffsetToFirstDicbase == 0:
+    #    if FourBytesAreNonZero(fileobject): #dumb way for checking for model tag
+    #        print("do we get here?")
+    #        for x in range(3): #loop thru 12 bytes after model tag to find the offset
+    #            OffsetToFirstDicbase = ReadInt32(fileobject)
+    #            if OffsetToFirstDicbase == 0:
+    #                continue
+    #            else:
+    #                break
             
-    print(OffsetToFirstDicbase) #is this working? yes
+    print("offset to first dic base is", OffsetToFirstDicbase) #is this working? yes
     #return an array of all the DDD offsets with loop?
-    FirstDicOffset = OffsetToFirstDicbase + EndOfFileDirectoryOffset  
+    FirstDicOffset = OffsetToFirstDicbase + EndOfNSIFileDirectoryOffset  
     MeshCount = 1
     DicOffsetMeshNumber = 0 #simple count for the number of submeshes
     DDDDirectoriesList = [] #a list of the overall offsets to DDDD directory
@@ -196,16 +210,11 @@ def GetDicLoc(fileobject, EndOfFileDirectoryOffset):
             fileobject.seek(CurrentDicOffset + 24, 0) #offset to DDD Direc
             OffsetToDDDDirectorybase = ReadInt32(fileobject)
             print(OffsetToDDDDirectorybase)
-            DDDDirectoryOffset = OffsetToDDDDirectorybase + EndOfFileDirectoryOffset
+            DDDDirectoryOffset = OffsetToDDDDirectorybase + EndOfNSIFileDirectoryOffset
             
             DDDDirectoriesList.append(DDDDirectoryOffset)
             DicOffsetMeshNumber = DicOffsetMeshNumber + 1
 
-    #FirstdicOffset = OffsetToFirstDicbase + EndOfFileDirectoryOffset  
-    #fileobject.seek(FirstdicOffset + 24, 0) #moving to 1st dic + 18 hex
-    #OffsetToDDDDirectorybase = ReadInt32(fileobject) #reading 400 from the 1st dic
-    #DDDDirectoryOffset = OffsetToDDDDirectorybase + EndOfFileDirectoryOffset  #adding the 400 to the string end of header
-    #print(DDDDirectoryOffset)
     return  DDDDirectoriesList, DicOffsetMeshNumber #also return the dicoffsetmeshnumber? for later for loop
 
 
