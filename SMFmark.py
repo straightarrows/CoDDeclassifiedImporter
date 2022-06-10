@@ -81,6 +81,8 @@ def ReadVertices(fileobject,FirstVertexOverallOffset,RepeatingVertexUnit, NumVer
         seekvalue = 28
     if RepeatingVertexUnit == 24:
         seekvalue = 12
+    if RepeatingVertexUnit == 36:
+        seekvalue = 24
     fileobject.seek(FirstVertexOverallOffset,0) #the offset to model spits you out 16 bytes before first vertex
     vertexlist = []
     for i in range(NumVertices): 
@@ -114,23 +116,9 @@ def GetModelOffset(fileobject, OffsetFromModelFileStartString, EndofFileDirector
     ###second nsirsrc string section (do this by going to offsets at end of first string section)
     ###find 31 byte and seek 8 bytes to the overall offset of FFFF7FFF
     
-    fileobject.seek(256,0) #looking for FFFF7FFF for other offsets
-    FFBYTECONFIRM = 0
-    #FFBYTE = b'\xff\xff\x7f\xff' \xff\x7f\xff
-    
-    i=0
-    for i in range (50):
-        
-        FFBYTE = fileobject.read(1)
-        if FFBYTE == b'\xff':
-            FFBYTECONFIRM = fileobject.read(3)
-            #print(FFBYTECONFIRM)
-            break
-            
-        if i == 49: 
-            
-            print("byte not found, returning")
-            return          
+    fileobject.seek(172,0) #seeking to the 2nd nsi file descriptor (seems to always be AC) to get offset to main file name
+    OffsetToFileName =  ReadInt32(fileobject)
+    fileobject.seek(OffsetToFileName+100,0) #should alway be 60 hex, 96 dec to FFFF7FFF +4 to the data         
 
     VerticesAndFacesSizeint = ReadInt32(fileobject) #after FFFF7FFF we have vertices+faces region size
     OffsetFromNSIHeaderToModelint =  ReadInt32(fileobject) #the offset to jmp from end of NSI Header directory to model
@@ -182,18 +170,6 @@ def GetDicLoc(fileobject, EndOfNSIFileDirectoryOffset):
     OffsetToFirstDicbase = ReadInt32(fileobject) #we can expand on thi laters to get all the model tags and their dic offsets, right now we only need first
     if OffsetToFirstDicbase == 0:
         OffsetToFirstDicbase = ReadInt32(fileobject)
-
-
-    #OffsetToFirstDicbase = 0
-    #while OffsetToFirstDicbase == 0:
-    #    if FourBytesAreNonZero(fileobject): #dumb way for checking for model tag
-    #        print("do we get here?")
-    #        for x in range(3): #loop thru 12 bytes after model tag to find the offset
-    #            OffsetToFirstDicbase = ReadInt32(fileobject)
-    #            if OffsetToFirstDicbase == 0:
-    #                continue
-    #            else:
-    #                break
             
     print("offset to first dic base is", OffsetToFirstDicbase) #is this working? yes
     #return an array of all the DDD offsets with loop?
@@ -302,11 +278,6 @@ class ImportSMF(bpy.types.Operator, ImportHelper):
        # now = time.time()
         #print("It took: {0} seconds".format(now-then))
         return {'FINISHED'}
-
-
-
-
-
 
 
 
