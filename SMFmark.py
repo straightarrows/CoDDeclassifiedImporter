@@ -75,8 +75,14 @@ def ReadFaceIndex(fileobject, FacesOverallOffset, NumFaces):
 def ReadVertices(fileobject,FirstVertexOverallOffset,RepeatingVertexUnit, NumVertices):
     if RepeatingVertexUnit == 12:
         seekvalue = 0
+    if RepeatingVertexUnit == 13: #this is kinda dumb fix for ai weapons which seem to be 13
+        seekvalue = 0
+    if RepeatingVertexUnit == 16: 
+        seekvalue = 4
     if RepeatingVertexUnit == 44 : #if 2C (hex) repeating units
         seekvalue = 32
+    if RepeatingVertexUnit == 43 : #another dumb fix since some ai things have literally 1 vertex. this is one is 40
+        seekvalue = 28
     if RepeatingVertexUnit == 40: #if 28 (hex) repeating units
         seekvalue = 28
     if RepeatingVertexUnit == 24:
@@ -97,7 +103,7 @@ def ImportModel(fileobject, offsettomodel, OffsetToFaces,FirstVertexOffset, Repe
     CurrentVertexOverallOffset = offsettomodel+16
     
     vertexlist = ReadVertices(fileobject,CurrentVertexOverallOffset,RepeatingVertexUnit, NumVertices)
-    print(vertexlist)
+    #print(vertexlist)
     
     FacesOverallOffset = FirstVertexOffset + OffsetToFaces
     print(FacesOverallOffset)
@@ -111,14 +117,15 @@ def ImportModel(fileobject, offsettomodel, OffsetToFaces,FirstVertexOffset, Repe
     scene = bpy.context.scene
     scene.collection.objects.link(object)
 
-def GetModelOffset(fileobject, OffsetFromModelFileStartString, EndofFileDirectoryOffset):
+def GetModelOffset(fileobject, OffsetFromModelFileStartString, EndofFileDirectoryOffset,CurrentOverallMesh):
     ###If you want to be slightly more official, you could go to the 
     ###second nsirsrc string section (do this by going to offsets at end of first string section)
     ###find 31 byte and seek 8 bytes to the overall offset of FFFF7FFF
     
     fileobject.seek(172,0) #seeking to the 2nd nsi file descriptor (seems to always be AC) to get offset to main file name
-    OffsetToFileName =  ReadInt32(fileobject)
-    fileobject.seek(OffsetToFileName+100,0) #should alway be 60 hex, 96 dec to FFFF7FFF +4 to the data         
+    OffsetToNSIFileName =  ReadInt32(fileobject)
+    OffsetToOverallModelFileData = CurrentOverallMesh*32
+    fileobject.seek(OffsetToNSIFileName+OffsetToOverallModelFileData+100,0) #should alway be 60 hex, 96 dec to FFFF7FFF +4 to the data         
 
     VerticesAndFacesSizeint = ReadInt32(fileobject) #after FFFF7FFF we have vertices+faces region size
     OffsetFromNSIHeaderToModelint =  ReadInt32(fileobject) #the offset to jmp from end of NSI Header directory to model
@@ -138,33 +145,41 @@ def FourBytesAreNonZero(fileobject):
 
     return True
 
+def GetModelTagOffsetArray(fileobject, EndOfNSIFileDirectoryOffset): #REFACTORINGGGG
+    fileobject.seek(EndOfNSIFileDirectoryOffset+24,0) #grabbing the number of overall mesh groups
+    OverallMeshCount = ReadInt32(fileobject)
+    print(OverallMeshCount, "overall meshh count is")
+    OffsetFromEndOfNSIToDDDDescriptor = ReadInt32(fileobject) #it is always 140 hex/320 dec to the first DDD descriptor, then you have the number of DDD regions and the offset to the first model tag/model descriptor region
+    print(OffsetFromEndOfNSIToDDDDescriptor, "offset should be 320 always")
+    
+    fileobject.seek(EndOfNSIFileDirectoryOffset+OffsetFromEndOfNSIToDDDDescriptor,0) 
+    
+    ZeroChecker = 0
+    ModelTagCountArray = []
+    OffsetToModelTagArray = []
+    Counter = 0
+    while ZeroChecker == 0: # we could use overall mesh count to stop instead of 0 check
+        ModelTagCountArray.append(ReadInt32(fileobject)) # note that this will store a zero 
+        if ModelTagCountArray[Counter] == 0:
+            ZeroChecker = 1
+            ModelTagCountArray.pop()
+            break
+        OffsetToModelTagArray.append(ReadInt32(fileobject))
+        fileobject.seek(8,1)
+        Counter = Counter +1
+
+    return OverallMeshCount, ModelTagCountArray, OffsetToModelTagArray
 
 
 
-
-def GetDicLoc(fileobject, EndOfNSIFileDirectoryOffset):
+def GetDicLoc(fileobject, EndOfNSIFileDirectoryOffset,CurrentModeltagOffset):
     ### Pookey chicken method. we are going seek 158 hex past the end of nsirsrc header
     ###then we are going to search for what I believe is the model tag id
     ###then you take the next 4 bytes as the offset to the real dictionary. 
     ###If those 4 bytes are 0, you take the NEXT 4 and that is usually the dictionary offset 
-    OffsetFromEndOfNSIToDDDDescriptor = 320 #it is always 140 hex/320 dec to the first DDD descriptor, then you have the number of DDD regions and the offset to the first model tag/model descriptor region
-    OffsetFromModelTagJmpToActualModelTag = 8
-    fileobject.seek(EndOfNSIFileDirectoryOffset+OffsetFromEndOfNSIToDDDDescriptor,0) 
     
-    ZeroChecker = 0
-    ModelTagCount = []
-    OffsetToModelTag = []
-    Counter = 0
-    while ZeroChecker == 0:
-        ModelTagCount.append(ReadInt32(fileobject)) # note that this will store a zero 
-        if ModelTagCount[Counter] == 0:
-            ZeroChecker = 1
-            ModelTagCount.pop()
-            break
-        OffsetToModelTag.append(ReadInt32(fileobject))
-        fileobject.seek(8,1)
-        Counter = Counter +1
-    fileobject.seek(OffsetToModelTag[0]+EndOfNSIFileDirectoryOffset+OffsetFromModelTagJmpToActualModelTag,0) #this shoule land us directly on first model tag
+    OffsetFromModelTagJmpToActualModelTag = 8
+    fileobject.seek(CurrentModeltagOffset+EndOfNSIFileDirectoryOffset+OffsetFromModelTagJmpToActualModelTag,0) #this shoule land us directly on first model tag
     ModelTag = ReadInt32(fileobject)
     fileobject.seek(4,1)
     OffsetToFirstDicbase = ReadInt32(fileobject) #we can expand on thi laters to get all the model tags and their dic offsets, right now we only need first
@@ -203,7 +218,7 @@ def GetSubmeshData(DDDDirectoryOffset, fileobject):
     FacesOffset = ReadInt32(fileobject) #faces offset from first vertex under smf string
     VertexAndDDDSize = FacesOffset - OffsetFromModelFileStartString #this subtracts the rest of the data so you only have the current submesh vertice+DDD region size
     print ("the size of the vertex and DDD region for this model is",VertexAndDDDSize)
-    RepeatingVertexUnit = round(VertexAndDDDSize/NumVertices)
+    RepeatingVertexUnit = round(VertexAndDDDSize/NumVertices) #this method is not ideal since DDDD region is sometimes pretty large
     print ("the size of the repeating vertex unit for this model is",RepeatingVertexUnit)
     ##TO-DO: Loop this through however many submeshes there are in file##
     return NumVertices, OffsetFromModelFileStartString, NumFaces, FacesOffset, RepeatingVertexUnit
@@ -214,24 +229,30 @@ def GetSubmeshData(DDDDirectoryOffset, fileobject):
 def ReadDataFromFile(context, filepath):
     fileobjectsmf = open(filepath, "rb")
     #print(fileobjectsmf.read(5))
-    ModelTypeCurrent = 3 #this will need to be changed based off file
+    
     fileobjectsmf.seek(12,0) #reading end of the file directory so we can jmp from it
     EndOfNsiFileDirectoryOffsetint = ReadInt32(fileobjectsmf)
     print(EndOfNsiFileDirectoryOffsetint)
-    DDDDirectoriesList, DicOffsetMeshNumber = GetDicLoc(fileobjectsmf, EndOfNsiFileDirectoryOffsetint) #this is working in most cases we throw at it
+    
+    OverallMeshCount, ModelTagCountArray, OffsetToModelTagArray = GetModelTagOffsetArray(fileobjectsmf,EndOfNsiFileDirectoryOffsetint)
+    #print("overallmeshcount, modeltagcountarray, offsettomodeltagarray", OverallMeshCount, ModelTagCountArray[0], OffsetToModelTagArray[0],OffsetToModelTagArray[1])
+    for CurrentOverallMesh in range(OverallMeshCount):
+        CurrentModeltagOffset = OffsetToModelTagArray[CurrentOverallMesh]
+        print ("current modeltag index offset", CurrentModeltagOffset)
+        DDDDirectoriesList, DicOffsetMeshNumber = GetDicLoc(fileobjectsmf, EndOfNsiFileDirectoryOffsetint,CurrentModeltagOffset) #this is working in most cases we throw at it
     ###start the sub mesh loop here?
-    for MeshNumber in range (DicOffsetMeshNumber):
-        #print("in for loop", DDDDirectoriesList[i])
-        NumVertices, OffsetFromModelFileStartString, NumFaces, OffsetToFaces, RepeatingVertexUnit = GetSubmeshData(DDDDirectoriesList[MeshNumber], fileobjectsmf)
-        ### we can take below out of for loop as we just add one thing to it later
-        OffsetToModel = GetModelOffset(fileobjectsmf,  OffsetFromModelFileStartString, EndOfNsiFileDirectoryOffsetint ) #adding offset from model file start string should allow us to do submeshes
-        ###
-        if MeshNumber == 0: #want to get offset for the first model
-            FirstVertexOffset = OffsetToModel+16
-        print(NumVertices, NumFaces)
-        ImportModel(fileobjectsmf, OffsetToModel, OffsetToFaces, FirstVertexOffset, RepeatingVertexUnit, NumVertices, NumFaces, MeshNumber)
-        #superdumb method to get vertices right for now
-        #ModelTypeCurrent = ModelTypeCurrent +2
+        for MeshNumber in range (DicOffsetMeshNumber):
+            #print("in for loop", DDDDirectoriesList[i])
+            NumVertices, OffsetFromModelFileStartString, NumFaces, OffsetToFaces, RepeatingVertexUnit = GetSubmeshData(DDDDirectoriesList[MeshNumber], fileobjectsmf)
+            ### we can take below out of for loop as we just add one thing to it later
+            OffsetToModel = GetModelOffset(fileobjectsmf,  OffsetFromModelFileStartString, EndOfNsiFileDirectoryOffsetint, CurrentOverallMesh ) #adding offset from model file start string should allow us to do submeshes
+            ###
+            if MeshNumber == 0: #want to get offset for the first model
+                FirstVertexOffset = OffsetToModel+16
+                print(" numvertices, numfaces", NumVertices, NumFaces)
+                print( "mesh number is", MeshNumber)
+            ImportModel(fileobjectsmf, OffsetToModel, OffsetToFaces, FirstVertexOffset, RepeatingVertexUnit, NumVertices, NumFaces, MeshNumber)
+        
     ###end submesh loop here?
     return
     
@@ -282,7 +303,7 @@ class ImportSMF(bpy.types.Operator, ImportHelper):
 
 
 def menu_func_import(self, context):
-    self.layout.operator(ImportSMF.bl_idname, text="SMF Mark Style")
+    self.layout.operator(ImportSMF.bl_idname, text="Import Models From SMF Files In Call Of Duty: Declassified")
 
 
 def register():
