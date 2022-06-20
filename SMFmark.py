@@ -1,9 +1,9 @@
 bl_info = {
     "name": "Import SMF models",
     "author": "Mark",
-    "version": (0,1),
+    "version": (0,2),
     "blender": (2, 93, 1),
-    "location": "File > Export > Omikron model (*.smf)",
+    "location": "File > Export > CoD model (*.smf)",
     "description": 'Import models from "Call of Duty Declassified"',
     "warning": "",
     "wiki_url": "",
@@ -48,14 +48,14 @@ def ReadShortTriple(fileobject):
     
     return [a,b,c]
 
-def ReadVector(fileobject):
+def ReadVector(fileobject, ModelDistancer):
     x = ReadFloat(fileobject)
     y = ReadFloat(fileobject)
     z = ReadFloat(fileobject)
     #print (x)
     #print(y)
     #print(z)
-    return Vector([x,y,z])
+    return Vector([x+ModelDistancer,y,z])
 
 def ReadFaceIndex(fileobject, FacesOverallOffset, NumFaces):
     # NEED TO FIX for this seek below!!!!sometime it is C/12 length! sometimes there is no 8 byte DDDD and the faces start immediately!
@@ -72,13 +72,15 @@ def ReadFaceIndex(fileobject, FacesOverallOffset, NumFaces):
     return faceindexlist
     
 
-def ReadVertices(fileobject,FirstVertexOverallOffset,RepeatingVertexUnit, NumVertices):
+def ReadVertices(fileobject,FirstVertexOverallOffset,RepeatingVertexUnit, NumVertices, CurrentOverallMesh):
     if RepeatingVertexUnit == 12:
         seekvalue = 0
     if RepeatingVertexUnit == 13: #this is kinda dumb fix for ai weapons which seem to be 13
         seekvalue = 0
     if RepeatingVertexUnit == 16: 
         seekvalue = 4
+    if RepeatingVertexUnit == 45 : #if 2C (hex) repeating units
+        seekvalue = 32
     if RepeatingVertexUnit == 44 : #if 2C (hex) repeating units
         seekvalue = 32
     if RepeatingVertexUnit == 43 : #another dumb fix since some ai things have literally 1 vertex. this is one is 40
@@ -87,22 +89,25 @@ def ReadVertices(fileobject,FirstVertexOverallOffset,RepeatingVertexUnit, NumVer
         seekvalue = 28
     if RepeatingVertexUnit == 24:
         seekvalue = 12
+    if RepeatingVertexUnit == 25:
+        seekvalue = 12
     if RepeatingVertexUnit == 36:
         seekvalue = 24
     fileobject.seek(FirstVertexOverallOffset,0) #the offset to model spits you out 16 bytes before first vertex
     vertexlist = []
+    ModelDistancer = CurrentOverallMesh*5
     for i in range(NumVertices): 
-        vertex = ReadVector(fileobject)
+        vertex = ReadVector(fileobject, ModelDistancer)
         vertexlist.append(vertex)
         fileobject.seek(seekvalue,1) 
 
     return vertexlist
 
-def ImportModel(fileobject, offsettomodel, OffsetToFaces,FirstVertexOffset, RepeatingVertexUnit, NumVertices, NumFaces, MeshNumber):
+def ImportModel(fileobject, offsettomodel, OffsetToFaces,FirstVertexOffset, RepeatingVertexUnit, NumVertices, NumFaces, MeshNumber, CurrentOverallMesh):
     
     CurrentVertexOverallOffset = offsettomodel+16
     
-    vertexlist = ReadVertices(fileobject,CurrentVertexOverallOffset,RepeatingVertexUnit, NumVertices)
+    vertexlist = ReadVertices(fileobject,CurrentVertexOverallOffset,RepeatingVertexUnit, NumVertices,CurrentOverallMesh)
     #print(vertexlist)
     
     FacesOverallOffset = FirstVertexOffset + OffsetToFaces
@@ -110,10 +115,11 @@ def ImportModel(fileobject, offsettomodel, OffsetToFaces,FirstVertexOffset, Repe
     faceindexlist = ReadFaceIndex(fileobject, FacesOverallOffset,NumFaces)
     print(faceindexlist)
     meshstring = "Cod_Vita_Mesh" + str(MeshNumber)
-    mesh = bpy.data.meshes.new("Cod_Vita_Mesh")
+    mesh = bpy.data.meshes.new(meshstring)
     mesh.from_pydata(vertexlist,[],faceindexlist)
     mesh.validate(verbose=True)
-    object = bpy.data.objects.new("Cod_Vita_Mesh", mesh)
+    CurrentOverallMeshString = "CoD_Vita_Mesh_" + str(CurrentOverallMesh)+ "_" + str(MeshNumber)
+    object = bpy.data.objects.new(CurrentOverallMeshString, mesh)
     scene = bpy.context.scene
     scene.collection.objects.link(object)
 
@@ -173,10 +179,6 @@ def GetModelTagOffsetArray(fileobject, EndOfNSIFileDirectoryOffset): #REFACTORIN
 
 
 def GetDicLoc(fileobject, EndOfNSIFileDirectoryOffset,CurrentModeltagOffset):
-    ### Pookey chicken method. we are going seek 158 hex past the end of nsirsrc header
-    ###then we are going to search for what I believe is the model tag id
-    ###then you take the next 4 bytes as the offset to the real dictionary. 
-    ###If those 4 bytes are 0, you take the NEXT 4 and that is usually the dictionary offset 
     
     OffsetFromModelTagJmpToActualModelTag = 8
     fileobject.seek(CurrentModeltagOffset+EndOfNSIFileDirectoryOffset+OffsetFromModelTagJmpToActualModelTag,0) #this shoule land us directly on first model tag
@@ -251,7 +253,7 @@ def ReadDataFromFile(context, filepath):
                 FirstVertexOffset = OffsetToModel+16
                 print(" numvertices, numfaces", NumVertices, NumFaces)
                 print( "mesh number is", MeshNumber)
-            ImportModel(fileobjectsmf, OffsetToModel, OffsetToFaces, FirstVertexOffset, RepeatingVertexUnit, NumVertices, NumFaces, MeshNumber)
+            ImportModel(fileobjectsmf, OffsetToModel, OffsetToFaces, FirstVertexOffset, RepeatingVertexUnit, NumVertices, NumFaces, MeshNumber, CurrentOverallMesh)
         
     ###end submesh loop here?
     return
@@ -264,7 +266,7 @@ class ImportSMF(bpy.types.Operator, ImportHelper):
     bl_label        = "import SMF";
     bl_options      = {'PRESET'};
     
-    filename_ext    = ".3do";
+    filename_ext    = ".smf";
 
     filter_glob: StringProperty(
         default="*.smf",
