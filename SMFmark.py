@@ -140,16 +140,7 @@ def GetModelOffset(fileobject, OffsetFromModelFileStartString, EndofFileDirector
     #print(TotalOffsetToModel)
     return TotalOffsetToModel       
 
-def FourBytesAreNonZero(fileobject):
-    for i in range (4):
-        readbyte = fileobject.read(1)
-        if readbyte == 0:
-            return False
-        else:
-            #print(i) 
-            continue
 
-    return True
 
 def GetModelTagOffsetArray(fileobject, EndOfNSIFileDirectoryOffset): #REFACTORINGGGG
     fileobject.seek(EndOfNSIFileDirectoryOffset+24,0) #grabbing the number of overall mesh groups
